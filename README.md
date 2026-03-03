@@ -11,13 +11,13 @@
 ## 一键安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/你的用户名/deepvcode-for-claude/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/serein431/deepvcode-for-claude/main/install.sh | bash
 ```
 
 或者克隆后本地安装：
 
 ```bash
-git clone https://github.com/你的用户名/deepvcode-for-claude.git
+git clone https://github.com/serein431/deepvcode-for-claude.git
 cd deepvcode-for-claude
 bash install.sh
 ```

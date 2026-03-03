@@ -6,7 +6,7 @@
 set -e
 
 INSTALL_DIR="$HOME/.deepvcode-proxy"
-REPO_URL="https://raw.githubusercontent.com/你的用户名/deepvcode-for-claude/main"
+REPO_URL="https://raw.githubusercontent.com/serein431/deepvcode-for-claude/main"
 SETTINGS="$HOME/.claude/settings.json"
 PORT=3456
 
