@@ -274,8 +274,21 @@ function toGenAI(body, isStream = false) {
     'claude-haiku-4-5':          'claude-haiku-4-5@20251001',
   };
   const rawModel = body.model || '';
-  const mappedModel = MODEL_MAP[rawModel]
-    || (rawModel.startsWith('claude-') ? 'auto' : rawModel || 'auto');
+  let mappedModel = MODEL_MAP[rawModel];
+  if (!mappedModel) {
+    if (rawModel.startsWith('claude-opus')) {
+      // 所有 claude-opus* 走最新的 opus 4.6
+      mappedModel = 'claude-opus-4-6';
+    } else if (rawModel.startsWith('claude-sonnet')) {
+      // 所有 claude-sonnet* 走最新的 sonnet 4.6
+      mappedModel = 'claude-sonnet-4-6';
+    } else if (rawModel.startsWith('claude-')) {
+      // 其他未特别指定的 claude-* 默认走 sonnet 4.6
+      mappedModel = 'claude-sonnet-4-6';
+    } else {
+      mappedModel = rawModel || 'auto';
+    }
+  }
 
   // 设置注册工具名列表（用于 MCP 工具名模糊匹配）
   setRegisteredToolNames(body.tools);
