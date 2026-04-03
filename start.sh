@@ -58,7 +58,7 @@ for i in 1 2 3; do
   fi
 done
 
-echo "✅ DeepVCode 代理已启动（端口 $PORT，PID $PROXY_PID）"
+echo "✅ DeepVCode 代理已启动 (端口 $PORT, PID $PROXY_PID)"
 echo "📋 日志：tail -f $LOG"
 echo ""
 
