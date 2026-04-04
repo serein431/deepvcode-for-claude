@@ -6,6 +6,10 @@ PROXY_SCRIPT="$HOME/.deepvcode-proxy/proxy.js"
 PORT=3456
 LOG="/tmp/deepvcode-proxy.log"
 
+# 加载 nvm（如果存在）
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
 # 检查依赖
 if ! command -v node &>/dev/null; then
   echo "❌ 未找到 node，请先安装 Node.js：https://nodejs.org"
