@@ -66,5 +66,6 @@ echo "✅ DeepVCode 代理已启动 (端口 $PORT, PID $PROXY_PID)"
 echo "📋 日志：tail -f $LOG"
 echo ""
 
-# 启动 Claude Code
+# 启动 Claude Code（no_proxy 防止系统代理拦截本地请求）
+NO_PROXY="127.0.0.1,localhost" no_proxy="127.0.0.1,localhost" \
 ANTHROPIC_BASE_URL="http://127.0.0.1:$PORT" ANTHROPIC_AUTH_TOKEN="PROXY_MANAGED" claude
