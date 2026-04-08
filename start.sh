@@ -53,7 +53,7 @@ PROXY_PID=$!
 # 等待启动
 for i in 1 2 3; do
   sleep 1
-  if curl -sf "http://127.0.0.1:$PORT/health" | grep -q ok; then
+  if curl -sf --noproxy "127.0.0.1" "http://127.0.0.1:$PORT/health" | grep -q ok; then
     break
   fi
   if [ $i -eq 3 ]; then
