@@ -1,6 +1,6 @@
 # DeepVCode → Claude Code Windows 一键安装脚本
 # 用法：右键以 PowerShell 运行，或在 PowerShell 中执行：.\install.ps1
-# 或远程安装：irm https://你的地址/install.ps1 | iex
+# 或远程安装：iwr https://你的地址/install.ps1 -UseBasicParsing | iex
 
 $ErrorActionPreference = "Stop"
 
@@ -128,22 +128,34 @@ Write-Host "🔗 创建快捷命令 deepvcode ..."
 # 查找或创建 bin 目录
 $BIN_DIR = $null
 $possibleBins = @(
-    "$env:LOCALAPPDATA\Microsoft\WindowsApps",
     "$env:USERPROFILE\bin",
     "$env:USERPROFILE\.local\bin"
 )
 
 foreach ($d in $possibleBins) {
     if ($env:PATH -like "*$d*") {
-        $BIN_DIR = $d
-        break
+        try {
+            New-Item -ItemType Directory -Force -Path $d -ErrorAction Stop | Out-Null
+            $probeFile = Join-Path $d ".deepvcode-write-test.tmp"
+            "ok" | Set-Content -Path $probeFile -Encoding ASCII -ErrorAction Stop
+            Remove-Item $probeFile -Force -ErrorAction SilentlyContinue
+            $BIN_DIR = $d
+            break
+        } catch {
+            # PATH 中存在但不可写（例如 WindowsApps），继续尝试下一个目录
+        }
     }
 }
 
 if (-not $BIN_DIR) {
     $BIN_DIR = "$env:USERPROFILE\.local\bin"
     New-Item -ItemType Directory -Force -Path $BIN_DIR | Out-Null
-    [Environment]::SetEnvironmentVariable("PATH", "$env:PATH;$BIN_DIR", "User")
+    $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    if (-not $userPath) { $userPath = "" }
+    if ($userPath -notlike "*$BIN_DIR*") {
+        $newUserPath = if ([string]::IsNullOrWhiteSpace($userPath)) { $BIN_DIR } else { "$userPath;$BIN_DIR" }
+        [Environment]::SetEnvironmentVariable("PATH", $newUserPath, "User")
+    }
     Write-Host ""
     Write-Host "   ⚠️  已将 $BIN_DIR 添加到用户 PATH，请重启 PowerShell 后使用 deepvcode 命令" -ForegroundColor Yellow
 }
@@ -166,7 +178,7 @@ if (-not $running) {
 '@ | Set-Content "$BIN_DIR\deepvcode.ps1" -Encoding UTF8
 
 # 创建 CMD 批处理文件（可选）
-@'
+@"
 @echo off
 set PORT=3456
 if "%~1"=="" goto :run
@@ -177,8 +189,8 @@ if "!arg:~0,1!" geq "0" if "!arg:~0,1!" leq "9" (
     shift
 )
 :run
-powershell -ExecutionPolicy Bypass -File "%USERPROFILE%\.local\bin\deepvcode.ps1" %*
-'@ | Set-Content "$BIN_DIR\deepvcode.cmd" -Encoding ASCII -ErrorAction SilentlyContinue
+powershell -NoProfile -ExecutionPolicy Bypass -File "$BIN_DIR\deepvcode.ps1" %*
+"@ | Set-Content "$BIN_DIR\deepvcode.cmd" -Encoding ASCII -ErrorAction SilentlyContinue
 
 Write-Host "✅ 命令已创建：$BIN_DIR\deepvcode.ps1" -ForegroundColor Green
 
@@ -235,7 +247,3 @@ Write-Host "  - Claude Code 已配置为默认走 DeepVCode 代理"
 Write-Host "  - 若要恢复原始配置，还原备份：Copy-Item ${SETTINGS}.bak $SETTINGS"
 Write-Host "  - token 到期后，在 VSCode 中重新登录 DeepVCode 即可，无需重新安装"
 Write-Host ""
-
-# 暂停让用户看到结果
-Write-Host "按任意键退出..."
-$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")

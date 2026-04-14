@@ -90,6 +90,7 @@ function remapFunctionCallArgs(name, args) {
 
 // 工具名标准化
 function normalizeToolName(name) {
+  if (!name || typeof name !== 'string') return '';
   const lowerName = name.toLowerCase();
   // search → Grep (已知幻觉)
   if (lowerName === 'search') {
@@ -185,6 +186,38 @@ function tryFuzzyMatchTool(name) {
   return name;
 }
 
+function normalizeFunctionArgs(rawArgs) {
+  if (rawArgs == null) return {};
+
+  if (typeof rawArgs === 'string') {
+    const trimmed = rawArgs.trim();
+    if (!trimmed) return {};
+
+    const unwrapped = trimmed
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/, '')
+      .trim();
+
+    try {
+      const parsed = JSON.parse(unwrapped);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed;
+      }
+      return { value: parsed };
+    } catch (err) {
+      dbg('[tool-args] failed to parse string args as JSON:', unwrapped.slice(0, 200), err.message);
+      return { raw_input: unwrapped };
+    }
+  }
+
+  if (typeof rawArgs === 'object') {
+    if (Array.isArray(rawArgs)) return { items: rawArgs };
+    return { ...rawArgs };
+  }
+
+  return { value: rawArgs };
+}
+
 function cleanSchema(s) {
   if (!s || typeof s !== 'object') return s;
   const out = {};
@@ -243,7 +276,7 @@ function contentToParts(content, toolIdMap = {}) {
     if (b.type === 'tool_use') {
       let toolName = normalizeToolName(b.name);
       toolName = tryFuzzyMatchTool(toolName);
-      const remappedInput = remapFunctionCallArgs(toolName, { ...(b.input || {}) });
+      const remappedInput = remapFunctionCallArgs(toolName, normalizeFunctionArgs(b.input));
       // 保留原始 id，后端需要用它来还原 tool_call_id
       return [{ functionCall: { id: b.id, name: toolName, args: remappedInput } }];
     }
@@ -417,7 +450,7 @@ function genAIToAnthropic(data, model) {
       hasToolCalls = true;
       let toolName = normalizeToolName(p.functionCall.name);
       toolName = tryFuzzyMatchTool(toolName);
-      const toolInput = remapFunctionCallArgs(toolName, { ...(p.functionCall.args || {}) });
+      const toolInput = remapFunctionCallArgs(toolName, normalizeFunctionArgs(p.functionCall.args));
       // 关键：优先保留后端返回的原始 id（即 Moonshot tool_call_id），而不是生成新的 toolu_xxx
       const toolId = p.functionCall.id || ('toolu_' + uid());
       content.push({ type: 'tool_use', id: toolId, name: toolName, input: toolInput });
@@ -533,7 +566,7 @@ function streamTransform(res, model, clientRes) {
             hasToolCalls = true;
             let toolName = normalizeToolName(p.functionCall.name);
             toolName = tryFuzzyMatchTool(toolName);
-            const toolInput = remapFunctionCallArgs(toolName, { ...(p.functionCall.args || {}) });
+            const toolInput = remapFunctionCallArgs(toolName, normalizeFunctionArgs(p.functionCall.args));
             // 关键：保留原始 functionCall.id（即 Moonshot tool_call_id）
             const toolId = p.functionCall.id || ('toolu_' + uid());
             allContent.push({ type: 'tool_use', id: toolId, name: toolName, input: toolInput });
@@ -605,9 +638,7 @@ function streamTransform(res, model, clientRes) {
         }
 
         for (const tc of choice?.message?.tool_calls || []) {
-          const args = typeof tc.function?.arguments === 'string'
-            ? tc.function.arguments
-            : JSON.stringify(tc.function?.arguments || {});
+          const args = JSON.stringify(normalizeFunctionArgs(tc.function?.arguments));
           send({ type: 'content_block_start', index: idx, content_block: { type: 'tool_use', id: tc.id || ('toolu_' + uid()), name: tc.function?.name || '', input: {} } });
           send({ type: 'content_block_delta', index: idx, delta: { type: 'input_json_delta', partial_json: args } });
           send({ type: 'content_block_stop', index: idx });
@@ -715,7 +746,12 @@ function proxyRequest(anthropicBody, clientRes) {
             const content = [];
             if (choice?.message?.content) content.push({ type: 'text', text: choice.message.content });
             for (const tc of choice?.message?.tool_calls || []) {
-              content.push({ type: 'tool_use', id: tc.id || ('toolu_' + uid()), name: tc.function?.name || '', input: JSON.parse(tc.function?.arguments || '{}') });
+              content.push({
+                type: 'tool_use',
+                id: tc.id || ('toolu_' + uid()),
+                name: tc.function?.name || '',
+                input: normalizeFunctionArgs(tc.function?.arguments)
+              });
             }
             anthropic = { id: 'msg_' + uid(), type: 'message', role: 'assistant', content, model, stop_reason: choice?.finish_reason === 'tool_calls' ? 'tool_use' : 'end_turn', stop_sequence: null, usage: { input_tokens: d.usage?.prompt_tokens || 0, output_tokens: d.usage?.completion_tokens || 0 } };
           } else {

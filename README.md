@@ -24,10 +24,48 @@ bash install.sh
 
 ## Windows 安装
 
-在 PowerShell 中执行（需要以管理员身份运行，或先执行 `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`）：
+### `install.ps1` 脚本怎么用
+
+本地脚本执行（推荐）：
 
 ```powershell
-irm https://raw.githubusercontent.com/serein431/deepvcode-for-claude/main/install.ps1 | iex
+cd deepvcode-for-claude
+Set-ExecutionPolicy -Scope Process Bypass -Force
+.\install.ps1
+```
+
+远程一键执行（不落地文件）：
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force
+iwr https://raw.githubusercontent.com/serein431/deepvcode-for-claude/main/install.ps1 -UseBasicParsing | iex
+```
+
+如果当前在 CMD 里：
+
+```cmd
+powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/serein431/deepvcode-for-claude/main/install.ps1 -UseBasicParsing | iex"
+```
+
+安装完成后，打开新终端执行：
+
+```powershell
+deepvcode
+```
+
+---
+
+在 **PowerShell** 中执行（无需管理员）：
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass -Force
+iwr https://raw.githubusercontent.com/serein431/deepvcode-for-claude/main/install.ps1 -UseBasicParsing | iex
+```
+
+如果你在 **CMD** 里执行，请用：
+
+```cmd
+powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr https://raw.githubusercontent.com/serein431/deepvcode-for-claude/main/install.ps1 -UseBasicParsing | iex"
 ```
 
 或者克隆后本地安装：
