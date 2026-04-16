@@ -7,6 +7,11 @@ $PROXY_SCRIPT = "$env:USERPROFILE\.deepvcode-proxy\proxy.js"
 $PORT = 3456
 $LOG = "$env:TEMP\deepvcode-proxy.log"
 $TOKEN_FILE = "$env:USERPROFILE\.deepv\jwt-token.json"
+$UPSTREAM_PROXY = if ($env:DEEPVCODE_UPSTREAM_PROXY) { $env:DEEPVCODE_UPSTREAM_PROXY } `
+    elseif ($env:HTTPS_PROXY) { $env:HTTPS_PROXY } `
+    elseif ($env:HTTP_PROXY) { $env:HTTP_PROXY } `
+    elseif ($env:ALL_PROXY) { $env:ALL_PROXY } `
+    else { "" }
 
 # 检查依赖
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
@@ -49,6 +54,7 @@ Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object {
 Start-Sleep -Seconds 1
 
 # 后台启动代理
+$env:DEEPVCODE_UPSTREAM_PROXY = $UPSTREAM_PROXY
 $proxyProc = Start-Process -FilePath "node" -ArgumentList "`"$PROXY_SCRIPT`" $PORT" `
     -RedirectStandardOutput $LOG -RedirectStandardError $LOG `
     -WindowStyle Hidden -PassThru
@@ -69,6 +75,11 @@ if (-not $started) {
 }
 
 Write-Host "✅ DeepVCode 代理已启动（端口 $PORT，PID $($proxyProc.Id)）" -ForegroundColor Green
+if ($UPSTREAM_PROXY) {
+    Write-Host "🌐 上游代理：$UPSTREAM_PROXY"
+} else {
+    Write-Host "🌐 上游代理：未配置（直连）"
+}
 Write-Host "📋 日志：Get-Content -Wait $LOG"
 Write-Host ""
 

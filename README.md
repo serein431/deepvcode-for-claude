@@ -98,6 +98,32 @@ deepvcode
 
 这会自动启动代理并进入 Claude Code。
 
+## 上游代理配置（让 DeepVCode 请求都走代理）
+
+`proxy.js` 会优先读取以下环境变量作为上游代理：
+
+- `DEEPVCODE_UPSTREAM_PROXY`（推荐，优先级最高）
+- `HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`
+
+示例：
+
+```bash
+# 按你的代理软件实际地址填写，不一定是 7890
+export DEEPVCODE_UPSTREAM_PROXY="http://127.0.0.1:<你的代理端口>"
+deepvcode
+```
+
+Windows PowerShell：
+
+```powershell
+$env:DEEPVCODE_UPSTREAM_PROXY = "http://127.0.0.1:<你的代理端口>"
+deepvcode
+```
+
+常见端口仅供参考（以你本机配置为准）：`7890`、`1080`、`8080`、`8888`。
+
+启动时会打印 `上游代理`，用于确认当前是走代理还是直连。
+
 ## 工作原理
 
 ```

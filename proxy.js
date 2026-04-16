@@ -9,6 +9,8 @@
 
 const http = require('http');
 const https = require('https');
+const tls = require('tls');
+const { PassThrough } = require('stream');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -21,6 +23,145 @@ const DEEPVCODE_URL_SYNC   = `${DEEPVCODE_BASE}/v1/chat/messages`;
 // 调试模式：PROXY_DEBUG=1 node proxy.js
 const DEBUG = process.env.PROXY_DEBUG === '1';
 const dbg = (...a) => DEBUG && console.log('[proxy:debug]', ...a);
+
+function pickProxyFromEnv() {
+  const raw =
+    process.env.DEEPVCODE_UPSTREAM_PROXY ||
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy ||
+    process.env.ALL_PROXY ||
+    process.env.all_proxy;
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+      throw new Error(`不支持的代理协议: ${u.protocol}`);
+    }
+    return u;
+  } catch (e) {
+    console.error(`[proxy] 无效的上游代理地址 "${raw}": ${e.message}`);
+    return null;
+  }
+}
+
+function formatProxyForLog(proxyUrl) {
+  if (!proxyUrl) return 'disabled';
+  const host = proxyUrl.hostname;
+  const port = proxyUrl.port || (proxyUrl.protocol === 'https:' ? '443' : '80');
+  const hasAuth = proxyUrl.username || proxyUrl.password;
+  return `${proxyUrl.protocol}//${hasAuth ? '***:***@' : ''}${host}:${port}`;
+}
+
+function buildProxyAuth(proxyUrl) {
+  if (!proxyUrl.username && !proxyUrl.password) return null;
+  const user = decodeURIComponent(proxyUrl.username || '');
+  const pass = decodeURIComponent(proxyUrl.password || '');
+  return 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64');
+}
+
+function requestViaUpstreamProxy(proxyUrl, options, bodyStr, onResponse, onError) {
+  const proxyPort = Number(proxyUrl.port || (proxyUrl.protocol === 'https:' ? 443 : 80));
+  const proxyAuth = buildProxyAuth(proxyUrl);
+  const targetHost = options.hostname || options.host;
+  const targetPort = Number(options.port || 443);
+  if (!targetHost) {
+    onError(new Error('无法确定目标主机'));
+    return;
+  }
+
+  const connectOptions = {
+    host: proxyUrl.hostname,
+    port: proxyPort,
+    method: 'CONNECT',
+    path: `${targetHost}:${targetPort}`,
+    headers: {
+      Host: `${targetHost}:${targetPort}`,
+      ...(proxyAuth ? { 'Proxy-Authorization': proxyAuth } : {}),
+    },
+  };
+
+  const connectReq = (proxyUrl.protocol === 'https:' ? https : http).request(connectOptions);
+  let finished = false;
+  const fail = (err) => {
+    if (finished) return;
+    finished = true;
+    onError(err);
+  };
+  const succeed = (res) => {
+    if (finished) return;
+    finished = true;
+    onResponse(res);
+  };
+
+  connectReq.on('error', fail);
+  connectReq.on('connect', (connectRes, socket) => {
+    if (connectRes.statusCode !== 200) {
+      socket.destroy();
+      fail(new Error(`代理 CONNECT 失败: ${connectRes.statusCode}`));
+      return;
+    }
+
+    const tlsSocket = tls.connect({
+      socket,
+      servername: targetHost,
+    });
+
+    tlsSocket.on('error', fail);
+    tlsSocket.on('secureConnect', () => {
+      const headers = {
+        Host: targetHost,
+        Connection: 'close',
+        ...(options.headers || {}),
+      };
+      const headerLines = Object.entries(headers).map(([k, v]) => `${k}: ${v}`);
+      const reqHead = [
+        `${options.method || 'POST'} ${options.path || '/'} HTTP/1.1`,
+        ...headerLines,
+        '',
+        '',
+      ].join('\r\n');
+      tlsSocket.write(reqHead);
+      tlsSocket.write(bodyStr);
+
+      let headerParsed = false;
+      let headerBuf = Buffer.alloc(0);
+      let bodyStream = null;
+
+      tlsSocket.on('data', chunk => {
+        if (!headerParsed) {
+          headerBuf = Buffer.concat([headerBuf, chunk]);
+          const idx = headerBuf.indexOf('\r\n\r\n');
+          if (idx === -1) return;
+
+          const rawHeader = headerBuf.slice(0, idx).toString('latin1');
+          const remain = headerBuf.slice(idx + 4);
+          const firstLine = rawHeader.split('\r\n')[0] || '';
+          const m = firstLine.match(/^HTTP\/\d\.\d\s+(\d+)/i);
+          const statusCode = m ? parseInt(m[1], 10) : 502;
+
+          bodyStream = new PassThrough();
+          bodyStream.statusCode = statusCode;
+          succeed(bodyStream);
+
+          if (remain.length) bodyStream.write(remain);
+          headerParsed = true;
+          headerBuf = Buffer.alloc(0);
+          return;
+        }
+        if (bodyStream) bodyStream.write(chunk);
+      });
+
+      tlsSocket.on('end', () => {
+        if (bodyStream) bodyStream.end();
+      });
+    });
+  });
+  connectReq.end();
+}
+
+const UPSTREAM_PROXY = pickProxyFromEnv();
 
 // ── Token ─────────────────────────────────────────────────────────────────────
 
@@ -712,7 +853,7 @@ function proxyRequest(anthropicBody, clientRes) {
     }
   };
 
-  const req = https.request(options, res => {
+  const handleBackendResponse = res => {
     if (res.statusCode !== 200) {
       let body = '';
       res.on('data', c => body += c);
@@ -766,16 +907,23 @@ function proxyRequest(anthropicBody, clientRes) {
         }
       });
     }
-  });
+  };
 
-  req.on('error', e => {
+  const handleBackendError = e => {
     console.error('[proxy] request error:', e.message);
+    if (clientRes.writableEnded || clientRes.headersSent) return;
     clientRes.writeHead(500, { 'Content-Type': 'application/json' });
     clientRes.end(JSON.stringify({ error: { type: 'api_error', message: e.message } }));
-  });
+  };
 
-  req.write(bodyStr);
-  req.end();
+  if (UPSTREAM_PROXY) {
+    requestViaUpstreamProxy(UPSTREAM_PROXY, options, bodyStr, handleBackendResponse, handleBackendError);
+  } else {
+    const req = https.request(options, handleBackendResponse);
+    req.on('error', handleBackendError);
+    req.write(bodyStr);
+    req.end();
+  }
 }
 
 // ── HTTP 服务器 ────────────────────────────────────────────────────────────────
@@ -809,6 +957,7 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`[DeepVCode Proxy] 运行中 → http://127.0.0.1:${PORT}`);
   console.log(`[DeepVCode Proxy] 流式转发 → ${DEEPVCODE_URL_STREAM}`);
   console.log(`[DeepVCode Proxy] 同步转发 → ${DEEPVCODE_URL_SYNC}`);
+  console.log(`[DeepVCode Proxy] 上游代理 → ${formatProxyForLog(UPSTREAM_PROXY)}`);
   try {
     const exp = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.deepv', 'jwt-token.json'), 'utf8')).expiresAt;
     const days = exp ? Math.floor((exp - Date.now()) / 86400000) : '?';

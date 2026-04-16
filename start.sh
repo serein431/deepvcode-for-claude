@@ -5,6 +5,7 @@
 PROXY_SCRIPT="$HOME/.deepvcode-proxy/proxy.js"
 PORT=3456
 LOG="/tmp/deepvcode-proxy.log"
+UPSTREAM_PROXY="${DEEPVCODE_UPSTREAM_PROXY:-${HTTPS_PROXY:-${https_proxy:-${HTTP_PROXY:-${http_proxy:-${ALL_PROXY:-${all_proxy:-}}}}}}}"
 
 # 加载 nvm（如果存在）
 export NVM_DIR="$HOME/.nvm"
@@ -47,7 +48,7 @@ lsof -ti ":$PORT" 2>/dev/null | xargs kill -9 2>/dev/null || true
 sleep 1
 
 # 后台启动代理
-nohup node "$PROXY_SCRIPT" "$PORT" > "$LOG" 2>&1 &
+DEEPVCODE_UPSTREAM_PROXY="$UPSTREAM_PROXY" nohup node "$PROXY_SCRIPT" "$PORT" > "$LOG" 2>&1 &
 PROXY_PID=$!
 
 # 等待启动
@@ -63,6 +64,11 @@ for i in 1 2 3; do
 done
 
 echo "✅ DeepVCode 代理已启动 (端口 $PORT, PID $PROXY_PID)"
+if [ -n "$UPSTREAM_PROXY" ]; then
+  echo "🌐 上游代理：$UPSTREAM_PROXY"
+else
+  echo "🌐 上游代理：未配置（直连）"
+fi
 echo "📋 日志：tail -f $LOG"
 echo ""
 
